@@ -1,6 +1,6 @@
 """Roborock MCP server — controls all vacuums on the account by name.
 
-Auth: run auth_once.py / code_auth.py first to cache a session token at
+Auth: run auth_flow.py first to cache a session token at
 ~/.roborock-mcp/credentials.json. The server never sees the account password.
 """
 
@@ -12,6 +12,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from roborock import RoborockCommand, UserData
 from roborock.devices.device_manager import DeviceManager, UserParams, create_device_manager
+
+import map_response_patch  # noqa: F401  (fixes chunked map responses upstream drops)
 
 CACHE = os.path.expanduser("~/.roborock-mcp/credentials.json")
 
@@ -104,6 +106,57 @@ async def list_rooms(robot: str) -> str:
     await rooms.refresh()
     mapping = {str(r.segment_id): r.name for r in rooms.rooms or []}
     return json.dumps(mapping, indent=2)
+
+
+async def _home_rooms() -> dict[str, str]:
+    """Fetch home-level rooms (iot id -> name) from the Roborock cloud."""
+    from roborock.web_api import RoborockApiClient
+
+    with open(CACHE) as f:
+        creds = json.load(f)
+    client = RoborockApiClient(creds["email"], base_url=creds.get("base_url"))
+    home = await client.get_home_data_v3(UserData.from_dict(creds["user_data"]))
+    return dict(home.rooms_name_map)
+
+
+@mcp.tool()
+async def list_home_rooms() -> str:
+    """List the home-level room entities (id -> name) shared by all robots.
+
+    These are the canonical room names; use link_room to attach a robot's map
+    segment to one of them.
+    """
+    return json.dumps(await _home_rooms(), indent=2)
+
+
+@mcp.tool()
+async def link_room(robot: str, segment_id: int, room_name: str) -> str:
+    """Link one map segment on a robot to an existing home room (renames it on the map).
+
+    room_name must match a home room from list_home_rooms. NOTE: the robot's other
+    segment links are preserved (the underlying command replaces the full mapping,
+    so the current mapping is re-sent with one entry changed).
+    """
+    d = await _find(robot)
+    rooms = await _home_rooms()
+    by_name = {name.lower(): iot_id for iot_id, name in rooms.items()}
+    iot_id = by_name.get(room_name.lower())
+    if iot_id is None:
+        return f"No home room named '{room_name}'. See list_home_rooms."
+    mapping = await d.v1_properties.command.send(RoborockCommand.GET_ROOM_MAPPING)
+    payload = []
+    seen = False
+    for entry in mapping:
+        seg, cur_iot = entry[0], entry[1]
+        if seg == segment_id:
+            payload.append({"miRoomId": iot_id, "robotRoomId": seg})
+            seen = True
+        elif cur_iot:
+            payload.append({"miRoomId": cur_iot, "robotRoomId": seg})
+    if not seen:
+        return f"Segment {segment_id} not found on {d.name}. Segments: {[e[0] for e in mapping]}"
+    await d.v1_properties.command.send(RoborockCommand.NAME_SEGMENT, payload)
+    return f"{d.name}: segment {segment_id} -> '{room_name}'"
 
 
 @mcp.tool()
