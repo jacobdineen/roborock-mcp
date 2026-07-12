@@ -29,21 +29,19 @@ uv venv && uv pip install -e .
 
 ### Authenticate (one time)
 
-Roborock accounts with two-step verification need the email-code flow:
-
 ```bash
-.venv/bin/python request_code.py you@example.com   # sends code to your email
-.venv/bin/python code_auth.py you@example.com 123456
+.venv/bin/python auth_flow.py you@example.com
 ```
 
-Accounts without two-step can use the password flow instead:
+This emails you a verification code and waits for it (type it in, or write it
+to `~/.roborock-mcp/code.txt` when running non-interactively). Request and
+login must happen in one process — Roborock binds the code to the requesting
+client's randomized device ID, so requesting and logging in from separate
+processes fails with "invalid code". If login fails with a user-agreement
+error (3009), open the Roborock app, accept the ToS popup, and rerun.
 
-```bash
-RR_PASS='...' .venv/bin/python auth_once.py you@example.com
-```
-
-Either path caches a session token at `~/.roborock-mcp/credentials.json`
-(mode 600). No password is ever stored.
+The session token is cached at `~/.roborock-mcp/credentials.json` (mode 600).
+No password is ever stored.
 
 ### Register with Claude Code
 
