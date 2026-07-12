@@ -15,8 +15,11 @@ account are first-class: every tool takes a `robot` argument matched by
 | `list_rooms(robot)` | Segment id → room name for the robot's map |
 | `start_cleaning(robot)` | Full clean |
 | `clean_rooms(robot, rooms, repeat)` | Clean specific rooms by name or id |
+| `clean_house(rooms, exclude, repeat, dry_run)` | Split a whole-house clean across all robots, area-balanced (`dry_run` returns the plan only) |
 | `pause` / `resume` / `stop` (robot) | Job control |
 | `return_to_dock(robot)` | Send it home |
+| `fleet_status()` | Live status of every robot in one call |
+| `pause_all` / `resume_all` / `dock_all` | Fan a job command to every robot at once |
 | `locate(robot)` | Play the "I'm here" sound |
 | `get_consumables(robot)` | Brush/filter/sensor life remaining |
 | `send_raw_command(robot, command, params_json)` | Any `RoborockCommand`, escape hatch |
@@ -57,3 +60,9 @@ Then just ask: *"have the upstairs robot clean the kitchen and the office, two p
   MQTT — works even when you're away from home.
 - Room names come from the map in the Roborock app; rename rooms there and
   `list_rooms` picks them up.
+- `clean_house` splits the house across robots by canonical room name: rooms only
+  one robot has go to that robot, rooms both have are greedily balanced by
+  estimated floor area so the robots finish together. Area estimates come from a
+  static per-segment bbox table (`~/.roborock-mcp/rhonda_bboxes.json`); rooms with
+  no estimate fall back to the median room size. Run with `dry_run=True` to see
+  the partition before dispatching.
