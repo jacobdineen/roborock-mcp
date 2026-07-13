@@ -15,8 +15,11 @@ account are first-class: every tool takes a `robot` argument matched by
 | `list_rooms(robot)` | Segment id → room name for the robot's map |
 | `start_cleaning(robot)` | Full clean |
 | `clean_rooms(robot, rooms, repeat)` | Clean specific rooms by name or id |
+| `clean_house(rooms, exclude, repeat, dry_run)` | Split a whole-house clean across all robots, area-balanced (`dry_run` returns the plan only) |
 | `pause` / `resume` / `stop` (robot) | Job control |
 | `return_to_dock(robot)` | Send it home |
+| `fleet_status()` | Live status of every robot in one call |
+| `pause_all` / `resume_all` / `dock_all` | Fan a job command to every robot at once |
 | `locate(robot)` | Play the "I'm here" sound |
 | `get_consumables(robot)` | Brush/filter/sensor life remaining |
 | `send_raw_command(robot, command, params_json)` | Any `RoborockCommand`, escape hatch |
@@ -29,21 +32,19 @@ uv venv && uv pip install -e .
 
 ### Authenticate (one time)
 
-Roborock accounts with two-step verification need the email-code flow:
-
 ```bash
-.venv/bin/python request_code.py you@example.com   # sends code to your email
-.venv/bin/python code_auth.py you@example.com 123456
+.venv/bin/python auth_flow.py you@example.com
 ```
 
-Accounts without two-step can use the password flow instead:
+This emails you a verification code and waits for it (type it in, or write it
+to `~/.roborock-mcp/code.txt` when running non-interactively). Request and
+login must happen in one process — Roborock binds the code to the requesting
+client's randomized device ID, so requesting and logging in from separate
+processes fails with "invalid code". If login fails with a user-agreement
+error (3009), open the Roborock app, accept the ToS popup, and rerun.
 
-```bash
-RR_PASS='...' .venv/bin/python auth_once.py you@example.com
-```
-
-Either path caches a session token at `~/.roborock-mcp/credentials.json`
-(mode 600). No password is ever stored.
+The session token is cached at `~/.roborock-mcp/credentials.json` (mode 600).
+No password is ever stored.
 
 ### Register with Claude Code
 
@@ -59,3 +60,9 @@ Then just ask: *"have the upstairs robot clean the kitchen and the office, two p
   MQTT — works even when you're away from home.
 - Room names come from the map in the Roborock app; rename rooms there and
   `list_rooms` picks them up.
+- `clean_house` splits the house across robots by canonical room name: rooms only
+  one robot has go to that robot, rooms both have are greedily balanced by
+  estimated floor area so the robots finish together. Area estimates come from a
+  static per-segment bbox table (`~/.roborock-mcp/rhonda_bboxes.json`); rooms with
+  no estimate fall back to the median room size. Run with `dry_run=True` to see
+  the partition before dispatching.
